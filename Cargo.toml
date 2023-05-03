@@ -19,6 +19,10 @@ multi-party-ecdsa = { git = "https://github.com/ssantos21/multi-party-ecdsa.git"
 curv-kzen = { version = "0.9", default-features = false }
 dirs = "4.0"
 electrum-client = { version = "0.14" }
+log = "0.4.17"
+sha3 = "0.10.7"
+hex = "0.4.3"
+digest = "0.10.4"
 
 # Added for compatibility with curv-kzen 0.9
 [dependencies.secp256k1]

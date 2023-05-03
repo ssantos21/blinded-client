@@ -1,7 +1,7 @@
 use std::{fs::{self, OpenOptions}, str::FromStr, io::Write};
 
-use bitcoin::{secp256k1::{Secp256k1, All}, bip32::{ExtendedPrivKey, ChildNumber}, Network};
-use electrum_client::{ElectrumApi, bitcoin::hashes::hex::FromHex, GetBalanceRes};
+use bitcoin::{secp256k1::{Secp256k1, All}, bip32::{ExtendedPrivKey, ChildNumber}, Network, Address, TxIn, OutPoint, Witness};
+use electrum_client::{ElectrumApi, bitcoin::hashes::hex::FromHex, GetBalanceRes, ListUnspentRes};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -312,10 +312,76 @@ impl Wallet {
         
         addrs_balance
     }
+
+    fn list_unspent_for_address(&mut self, address: &bitcoin::Address) -> Result<Vec<ListUnspentRes>, CError> {
+
+        let client = electrum_client::Client::new("127.0.0.1:60401").unwrap();
+        // This is necessary because the version of `bitcoin` crate is "0.30.0"
+        // while the version used in `electrum-client` crate is "0.29".
+        // This can be removed as soon as `electrum-client` crate updates `bitcoin` crate.
+        let hex_script = address.script_pubkey().to_hex_string();
+        let script_pubkey = electrum_client::bitcoin::Script::from_hex(&hex_script).unwrap();
+
+        match client.script_list_unspent(&script_pubkey) {
+            Ok(val) => Ok(val),
+            Err(e) => Err(CError::Generic(e.to_string())),
+        }
+    }
+
+    /// List unspent outputs for addresses derived by this wallet.
+    pub fn list_unspent(
+        &mut self,
+    ) -> Result<(Vec<bitcoin::Address>, Vec<Vec<ListUnspentRes>>), CError> {
+        let addresses = self.get_all_wallet_addresses();
+        let mut unspent_list: Vec<Vec<ListUnspentRes>> = vec![];
+        for addr in &addresses {
+            let addr_unspent_list = self.list_unspent_for_address(&addr)?;
+            unspent_list.push(addr_unspent_list);
+        }
+        Ok((addresses, unspent_list))
+    }
+
+    /// Select unspent coins greedily. Return TxIns along with corresponding spending addresses and amounts
+    pub fn coin_selection_greedy(
+        &mut self,
+        amount: &u64,
+    ) -> Result<(Vec<TxIn>, Vec<Address>, Vec<u64>), CError> {
+        // Greedy coin selection.
+        let (unspent_addrs, unspent_utxos) = self.list_unspent()?;
+        let mut inputs: Vec<TxIn> = vec![];
+        let mut addrs: Vec<Address> = vec![]; // corresponding addresses for inputs
+        let mut amounts: Vec<u64> = vec![]; // corresponding amounts for inputs
+        for (i, addr) in unspent_addrs.into_iter().enumerate() {
+            for unspent_utxo in unspent_utxos.get(i).unwrap() {
+                inputs.push(basic_input(
+                    &unspent_utxo.tx_hash.to_string(),
+                    &(unspent_utxo.tx_pos as u32),
+                ));
+                addrs.push(addr.clone());
+                amounts.push(unspent_utxo.value as u64);
+                if *amount <= amounts.iter().sum::<u64>() {
+                    return Ok((inputs, addrs, amounts));
+                }
+            }
+        }
+        return Err(CError::WalletError(WalletErrorType::NotEnoughFunds));
+    }
 }
 
 impl std::fmt::Display for Wallet {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(fmt, "wallet: {}", self.to_json().to_string())
+    }
+}
+
+fn basic_input(txid: &String, vout: &u32) -> TxIn {
+    TxIn {
+        previous_output: OutPoint {
+            txid: bitcoin::Txid::from_str(txid).unwrap(),
+            vout: *vout,
+        },
+        sequence: bitcoin::Sequence(0xFFFFFFFF),
+        witness: Witness::new(),
+        script_sig: bitcoin::Script::empty().into(),
     }
 }

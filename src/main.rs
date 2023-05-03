@@ -1,7 +1,8 @@
 pub mod wallet;
 pub mod keystore;
 pub mod utils;
-mod state_entity;
+pub mod state_entity;
+pub mod shared;
 
 use bitcoin::Network;
 use clap::{Parser, Subcommand};
@@ -28,12 +29,8 @@ enum Commands {
     GetNewAddress { wallet_name: String },
     /// Get a wallet balance
     GetBalance { wallet_name: String },
-}
-
-#[derive(Serialize, Deserialize, JsonSchema, Debug)]
-pub struct DepositMsg1 {
-    pub auth: String,
-    pub proof_key: String,
+    /// Deposit an amount to create a statecoin
+    Deposit { wallet_name: String, amount: u64 },
 }
 
 fn wallet_exists(wallet_name: &str) -> bool {
@@ -62,6 +59,11 @@ fn get_new_address(wallet_name: &String) {
     let obj = json!({"address": address.to_string(), "index": index});
 
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+}
+
+fn deposit(wallet_name: &String, amount: &u64 ) {
+    let mut wallet = Wallet::load(wallet_name).unwrap();
+    state_entity::deposit::deposit(&mut wallet, amount).unwrap();
 }
 
 fn get_balance(wallet_name: &String) {
@@ -107,6 +109,9 @@ fn main() {
         },
         Commands::GetBalance { wallet_name } => {
             get_balance(wallet_name);
+        },
+        Commands::Deposit { wallet_name, amount } => {
+            deposit(wallet_name, amount);
         },
     }
 
