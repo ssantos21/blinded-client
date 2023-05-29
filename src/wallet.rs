@@ -5,13 +5,16 @@ use electrum_client::{ElectrumApi, bitcoin::hashes::hex::FromHex, GetBalanceRes,
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{keystore::{key_path_with_addresses::KeyPathWithAddresses, key_path::KeyPath}, utils::error::{CError, WalletErrorType}};
+use crate::{keystore::{key_path_with_addresses::KeyPathWithAddresses, key_path::KeyPath}, utils::{error::{CError, WalletErrorType}, client_shim::ClientShim}};
 
 /// Standard Bitcoin Wallet
 pub struct Wallet {
     pub id: String,
     pub name: String,
     pub network: String,
+    
+    pub electrum_client: electrum_client::Client,
+    pub client_shim: ClientShim,
 
     pub master_priv_key: ExtendedPrivKey,
     pub keys: KeyPathWithAddresses,           // Keys for general usage
@@ -24,7 +27,7 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    pub fn new(seed: &[u8], name: &str, network: Network) -> Wallet {
+    pub fn new(seed: &[u8], name: &str, network: Network, electrum_server_url: &str, statechain_entity_url: &str) -> Wallet {
         let secp = Secp256k1::new();
         let master_priv_key =
             ExtendedPrivKey::new_master(network, seed).unwrap();
@@ -49,10 +52,16 @@ impl Wallet {
             .unwrap();
         let se_key_shares = KeyPath::new(se_key_shares_master_ext_key);
 
+        let electrum_client = electrum_client::Client::new(electrum_server_url).unwrap();
+
+        let client_shim = ClientShim::new(statechain_entity_url);
+
         Wallet {
             id: Uuid::new_v4().to_string(),
             name: name.to_string(),
             network: network.to_string(),
+            electrum_client,
+            client_shim,
             master_priv_key,
             keys,
             se_backup_keys,
@@ -102,7 +111,7 @@ impl Wallet {
     }
 
     /// load wallet from json
-    pub fn from_json(json: serde_json::Value) -> Result<Self, CError> {
+    pub fn from_json(json: serde_json::Value, electrum_server_url: &str, statechain_entity_url: &str) -> Result<Self, CError> {
         let secp = Secp256k1::new();
         let network = json["network"].as_str().unwrap().to_string();
 
@@ -139,10 +148,16 @@ impl Wallet {
         se_key_shares_master_ext_key.network = network.parse::<Network>().unwrap();
         let se_key_shares = KeyPath::new(se_key_shares_master_ext_key);
 
+        let electrum_client = electrum_client::Client::new(electrum_server_url).unwrap();
+
+        let client_shim = ClientShim::new(statechain_entity_url);
+
         let mut wallet = Wallet {
             id: json["id"].as_str().unwrap().to_string(),
             name: json["name"].as_str().unwrap().to_string(),
             network,
+            electrum_client,
+            client_shim,
             master_priv_key,
             keys,
             se_backup_keys,
@@ -229,7 +244,7 @@ impl Wallet {
     }
 
     /// load wallet from disk
-    pub fn load(wallet_name: &str) -> Result<Wallet, CError> {
+    pub fn load(wallet_name: &str, electrum_server_url: &str, statechain_entity_url: &str) -> Result<Wallet, CError> {
 
         let home_dir = dirs::home_dir();
 
@@ -252,7 +267,7 @@ impl Wallet {
         };
 
         // load wallet
-        let wallet: Wallet = match Wallet::from_json(serde_json_data) {
+        let wallet: Wallet = match Wallet::from_json(serde_json_data, electrum_server_url, statechain_entity_url) {
             Ok(wallet) => wallet,
             Err(_) => return Err(CError::WalletError(WalletErrorType::WalletFileInvalid))
         };
@@ -264,14 +279,8 @@ impl Wallet {
     /// return balance of address
     fn get_address_balance(&mut self, address: &bitcoin::Address) -> GetBalanceRes {
         //let client = electrum_client::Client::new("tcp://electrum.blockstream.info:50001").unwrap();
-        let client = electrum_client::Client::new("127.0.0.1:60401").unwrap();
-        // This is necessary because the version of `bitcoin` crate is "0.30.0"
-        // while the version used in `electrum-client` crate is "0.29".
-        // This can be removed as soon as `electrum-client` crate updates `bitcoin` crate.
-        let hex_script = address.script_pubkey().to_hex_string();
-        let script_pubkey = electrum_client::bitcoin::Script::from_hex(&hex_script).unwrap();
-
-        client.script_get_balance(&script_pubkey).unwrap()
+        // let client = electrum_client::Client::new("127.0.0.1:60401").unwrap();
+        self.electrum_client.script_get_balance(&address.script_pubkey()).unwrap()
     }
 
     fn zero_balance(&self, addr: &GetBalanceRes) -> bool {
@@ -315,14 +324,8 @@ impl Wallet {
 
     fn list_unspent_for_address(&mut self, address: &bitcoin::Address) -> Result<Vec<ListUnspentRes>, CError> {
 
-        let client = electrum_client::Client::new("127.0.0.1:60401").unwrap();
-        // This is necessary because the version of `bitcoin` crate is "0.30.0"
-        // while the version used in `electrum-client` crate is "0.29".
-        // This can be removed as soon as `electrum-client` crate updates `bitcoin` crate.
-        let hex_script = address.script_pubkey().to_hex_string();
-        let script_pubkey = electrum_client::bitcoin::Script::from_hex(&hex_script).unwrap();
-
-        match client.script_list_unspent(&script_pubkey) {
+        // let client = electrum_client::Client::new("127.0.0.1:60401").unwrap();
+        match self.electrum_client.script_list_unspent(&address.script_pubkey()) {
             Ok(val) => Ok(val),
             Err(e) => Err(CError::Generic(e.to_string())),
         }

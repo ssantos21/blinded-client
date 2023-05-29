@@ -12,7 +12,7 @@ pub fn deposit(
     amount: &u64,
 ) -> Result<(), CError> {
     // Get state entity fee info
-    let se_fee_info = get_statechain_fee_info();
+    let se_fee_info = get_statechain_fee_info(&wallet.client_shim)?;
 
     // Ensure funds cover fees before initiating protocol
     if FEE + se_fee_info.deposit as u64 >= *amount {
@@ -31,7 +31,7 @@ pub fn deposit(
     let proof_key = wallet.se_proof_keys.get_new_key()?;
 
     // Init. session - Receive shared wallet ID
-    let shared_key_id = session_init(&proof_key.to_string());
+    let shared_key_id = session_init(&wallet.client_shim, &proof_key.to_string())?;
 
     println!("shared_key_id: {:?}", shared_key_id);
 
