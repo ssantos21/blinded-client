@@ -2,7 +2,9 @@ use std::time::Instant;
 
 use log::info;
 
-use crate::{shared::{StateEntityFeeInfoAPI, UserID, DepositMsg1}, wallet::Wallet, utils::{error::CError, client_shim::ClientShim, requests}};
+use utils::{error::CError, client_shim::ClientShim, requests};
+
+use crate::{shared::structs::{StateEntityFeeInfoAPI, UserID, DepositMsg1}, utils};
 
 /// Get state chain fee
 pub fn get_statechain_fee_info(client_shim: &ClientShim) -> Result<StateEntityFeeInfoAPI, CError> {

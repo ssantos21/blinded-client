@@ -3,6 +3,7 @@ pub mod keystore;
 pub mod utils;
 pub mod state_entity;
 pub mod shared;
+pub mod ecdsa;
 
 use bitcoin::Network;
 use clap::{Parser, Subcommand};
@@ -12,7 +13,7 @@ use serde_json::json;
 use state_entity::api::get_statechain_fee_info;
 use utils::client_shim::ClientShim;
 
-use crate::wallet::Wallet;
+use crate::wallet::wallet::Wallet;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

@@ -16,6 +16,7 @@ uuid = { version = "1.3.1", features = ["v4", "serde"] }
 clap = { version = "4.2.5", features = ["derive"]}
 rand = "0.8.5"
 multi-party-ecdsa = { git = "https://github.com/ssantos21/multi-party-ecdsa.git", branch = "blinded_2p_ecdsa_01" }
+kms = { git = "https://github.com/ssantos21/two-party-ecdsa-workflow.git", branch = "blinded_2p_ecdsa_01" }
 curv-kzen = { version = "0.9", default-features = false }
 dirs = "4.0"
 electrum-client = { version = "0.15.1" }
@@ -24,8 +25,17 @@ sha3 = "0.10.7"
 hex = "0.4.3"
 digest = "0.10.4"
 config = "0.13.3"
+sha2 = "0.9"
+zk-paillier = { version = "0.4.3", default-features = false }
+
 
 # Added for compatibility with curv-kzen 0.9
 [dependencies.secp256k1]
 version = "0.20"
 features = ["serde", "rand-std", "global-context"]
+
+[dependencies.monotree]
+git = "https://github.com/commerceblock/monotree"
+tag = "0.1.3.1"
+default-features = false
+features=["hasher-blake3"]

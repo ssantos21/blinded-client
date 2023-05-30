@@ -1,7 +1,7 @@
 use sha3::Sha3_256;
 use digest::Digest;
 
-use crate::{wallet::Wallet, utils::{error::{CError, WalletErrorType}, helpers::FEE}};
+use crate::{wallet::wallet::Wallet, utils::{error::{CError, WalletErrorType}, helpers::FEE}};
 
 use super::api::{get_statechain_fee_info, session_init};
 
