@@ -28,11 +28,8 @@ config = "0.13.3"
 sha2 = "0.9"
 zk-paillier = { version = "0.4.3", default-features = false }
 
-
 # Added for compatibility with curv-kzen 0.9
-[dependencies.secp256k1]
-version = "0.20"
-features = ["serde", "rand-std", "global-context"]
+curv-kzen-secp256k1 = { package = "secp256k1", version = "0.20", features = ["serde", "rand-std", "global-context"] }
 
 [dependencies.monotree]
 git = "https://github.com/commerceblock/monotree"

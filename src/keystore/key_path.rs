@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use bitcoin::{bip32::{ExtendedPrivKey, ChildNumber}, PublicKey, secp256k1::{All}, PrivateKey};
+use bitcoin::{bip32::{ExtendedPrivKey, ChildNumber}, PublicKey, secp256k1::{All, SecretKey}, PrivateKey};
 use curv::elliptic::curves::{ECScalar, secp256_k1::{Secp256k1Scalar, SK}};
-use secp256k1::SecretKey;
+
 use crate::utils::error::CError;
 
 use super::KeyDerivation;
@@ -115,7 +115,7 @@ impl KeyPath {
         let o2: Option<Secp256k1Scalar> = match generate_o2 {
             true => {
                 let new_ext_priv_key_bytes = new_ext_priv_key.to_priv().inner.secret_bytes();
-                let new_ext_priv_sec_key = SecretKey::from_slice(&new_ext_priv_key_bytes).unwrap();
+                let new_ext_priv_sec_key = curv_kzen_secp256k1::SecretKey::from_slice(&new_ext_priv_key_bytes).unwrap();
                 let new_sk = SK(new_ext_priv_sec_key);
                 Some(Secp256k1Scalar::from_underlying(Some(new_sk)))
             },

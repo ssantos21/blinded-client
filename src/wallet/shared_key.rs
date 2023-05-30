@@ -1,8 +1,11 @@
+use bitcoin::secp256k1;
+use curv::elliptic::curves::{ECScalar, secp256_k1::{SK, Secp256k1Scalar}, Scalar, Secp256k1};
 use kms::ecdsa::two_party::MasterKey2;
+use secp256k1::SecretKey;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-use crate::{shared::structs::PrepareSignTxMsg};
+use crate::{shared::structs::{PrepareSignTxMsg, Protocol}, utils::{client_shim::ClientShim, error::CError}, ecdsa};
 
 #[derive(Serialize, Deserialize)]
 pub struct SharedKey {
@@ -19,30 +22,31 @@ pub struct SharedKey {
 }
 
 impl SharedKey {
-    // pub fn new(
-    //     id: &Uuid,
-    //     client_shim: &ClientShim,
-    //     secret_key: &SecretKey,
-    //     value: &u64,
-    //     protocol: Protocol,
-    //     solution: String,
-    // ) -> Result<SharedKey> {
-    //     Self::new_repeat_keygen(id, client_shim, secret_key, value, protocol, solution, 0)
-    // }
+    
+    pub fn new(
+        id: &Uuid,
+        client_shim: &ClientShim,
+        secret_key: &SecretKey,
+        value: &u64,
+        protocol: Protocol,
+        solution: String,
+    ) -> Result<SharedKey, CError> {
+        Self::new_repeat_keygen(id, client_shim, secret_key, value, protocol, solution, 0)
+    }
 
-    // pub fn new_repeat_keygen(
-    //     id: &Uuid,
-    //     client_shim: &ClientShim,
-    //     secret_key: &SecretKey,
-    //     value: &u64,
-    //     protocol: Protocol,
-    //     solution: String,
-    //     keygen_reps: u32
-    // ) -> Result<SharedKey> {
-    //     let mut key_share_priv: FE = ECScalar::zero(); // convert to curv lib
-    //     key_share_priv.set_element(*secret_key);
-    //     ecdsa::get_master_key_repeat_keygen(id, client_shim, &key_share_priv, value, protocol, solution, keygen_reps)
-    // }
+    pub fn new_repeat_keygen(
+        id: &Uuid,
+        client_shim: &ClientShim,
+        secret_key: &SecretKey,
+        value: &u64,
+        protocol: Protocol,
+        solution: String,
+        keygen_reps: u32
+    ) -> Result<SharedKey, CError> {
+        let key_share_priv = Scalar::<Secp256k1>::from_bytes(&secret_key.secret_bytes()).unwrap();
+
+        ecdsa::keygen::get_master_key_repeat_keygen(id, client_shim, &key_share_priv, value, protocol, solution, keygen_reps)
+    }
 
     // used in blind deposit where there is no InclusionProofSMT
     pub fn add_proof_key_and_funding_txid(

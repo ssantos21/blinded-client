@@ -1,6 +1,6 @@
 use std::fmt;
 
-use bitcoin::{Transaction, TxIn, TxOut, absolute::LockTime};
+use bitcoin::{Transaction, TxIn, TxOut, absolute::LockTime, secp256k1};
 use curv::{BigInt, arithmetic::One, cryptographic_primitives::proofs::sigma_dlog::DLogProof};
 use kms::ecdsa::two_party::party1;
 use multi_party_ecdsa::protocols::two_party_ecdsa::lindell_2017::party_one;

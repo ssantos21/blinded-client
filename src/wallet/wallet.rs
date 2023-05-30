@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 use crate::{keystore::{key_path_with_addresses::KeyPathWithAddresses, key_path::KeyPath}, utils::{error::{CError, WalletErrorType}, client_shim::ClientShim}};
 
+use super::shared_key::SharedKey;
+
 /// Standard Bitcoin Wallet
 pub struct Wallet {
     pub id: String,
@@ -22,7 +24,7 @@ pub struct Wallet {
     pub se_proof_keys: KeyPath,               // for use as State Entity proof keys
     pub se_key_shares: KeyPath,               // for derivation of private key shares used in shared_keys
 
-    //pub shared_keys: Vec<SharedKey>, // vector of keys co-owned with state entities
+    pub shared_keys: Vec<SharedKey>, // vector of keys co-owned with state entities
     pub require_mainstay: bool,
 }
 
@@ -67,7 +69,7 @@ impl Wallet {
             se_backup_keys,
             se_proof_keys,
             se_key_shares,
-            //shared_keys: vec![],
+            shared_keys: vec![],
             require_mainstay: false,
         }
     }
@@ -105,7 +107,7 @@ impl Wallet {
             "se_proof_keys_pos_encoded": serde_json::to_string(&se_proof_keys_pos_encoded).unwrap(),
             "se_key_shares_last_derivation_pos": self.se_key_shares.last_derived_pos,
             "se_key_shares_pos_encoded": serde_json::to_string(&se_key_shares_pos_encoded).unwrap(),
-            //"shared_keys": serde_json::to_string(&self.shared_keys).unwrap(),
+            "shared_keys": serde_json::to_string(&self.shared_keys).unwrap(),
             "require_mainstay": self.require_mainstay
         })
     }
@@ -163,7 +165,7 @@ impl Wallet {
             se_backup_keys,
             se_proof_keys,
             se_key_shares,
-            // shared_keys: vec![],
+            shared_keys: vec![],
             require_mainstay: json.get("require_mainstay").unwrap().as_bool().unwrap(),
         };
 
@@ -209,12 +211,12 @@ impl Wallet {
             }
         }
 
-        // let shared_keys_str = &json["shared_keys"].as_str().unwrap();
-        // if shared_keys_str.len() != 2 {
-        //     // is not empty
-        //     let shared_keys: Vec<SharedKey> = serde_json::from_str(shared_keys_str).unwrap();
-        //     wallet.shared_keys = shared_keys;
-        // }
+        let shared_keys_str = &json["shared_keys"].as_str().unwrap();
+        if shared_keys_str.len() != 2 {
+            // is not empty
+            let shared_keys: Vec<SharedKey> = serde_json::from_str(shared_keys_str).unwrap();
+            wallet.shared_keys = shared_keys;
+        }
 
         dbg!("(wallet id: {}) Loaded wallet to memory", &wallet.id);
         Ok(wallet)
