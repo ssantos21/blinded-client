@@ -1,7 +1,9 @@
+use bitcoin::{PublicKey, network};
+use curv::elliptic::curves::ECPoint;
 use sha3::Sha3_256;
 use digest::Digest;
 
-use crate::{wallet::wallet::Wallet, utils::{error::{CError, WalletErrorType}, helpers::FEE}};
+use crate::{wallet::wallet::Wallet, utils::{error::{CError, WalletErrorType}, helpers::{FEE, to_bitcoin_public_key, tx_funding_build}}};
 
 use super::api::{get_statechain_fee_info, session_init};
 
@@ -66,6 +68,40 @@ pub fn deposit(
     let solution = format!("{:x}", counter);
 
     println!("solution: {}", solution);
+
+    // 2P-ECDSA with state entity to create a Shared key
+    let shared_key = wallet.gen_shared_key(&shared_key_id.id, amount, solution)?;
+
+    // Create funding tx
+
+    let pk = shared_key.share.public.q.clone().into_raw().underlying_ref().to_owned().unwrap(); // co-owned key address to send funds to (P_addr)
+    let p_addr = bitcoin::Address::p2wpkh(&to_bitcoin_public_key(pk), wallet.get_bitcoin_network())?;
+    let change_addr = wallet.keys.get_new_address()?.0.to_string();
+    let change_amount = amounts.iter().sum::<u64>() - amount - deposit_fee - FEE;
+
+    let tx_0 = tx_funding_build(
+        &inputs,
+        &p_addr.to_string(),
+        amount,
+        &deposit_fee,
+        &se_fee_info.address,
+        &change_addr,
+        &change_amount,
+        wallet.get_bitcoin_network(),
+    )?;
+
+    let tx_funding_signed = wallet.sign_tx(
+        &tx_0,
+        &(0..inputs.len()).collect(), // inputs to sign are all inputs is this case
+        &addrs,
+    );
+
+    //get initial locktime
+    let chaintip_height = wallet.get_tip_header()?;
+    println!("Deposit: Got current best block height: {}", chaintip_height);
+    let init_locktime: u32 = (chaintip_height as u32) + (se_fee_info.initlock as u32);
+    println!("Deposit: Set initial locktime: {}", init_locktime.to_string());
+
 
     Ok(())
 }

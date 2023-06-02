@@ -1,5 +1,5 @@
 use bitcoin::secp256k1;
-use curv::elliptic::curves::{ECScalar, secp256_k1::{SK, Secp256k1Scalar}, Scalar, Secp256k1};
+use curv::elliptic::curves::{Scalar, Secp256k1};
 use kms::ecdsa::two_party::MasterKey2;
 use secp256k1::SecretKey;
 use serde::{Serialize, Deserialize};

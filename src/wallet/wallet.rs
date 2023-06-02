@@ -1,11 +1,11 @@
-use std::{fs::{self, OpenOptions}, str::FromStr, io::Write};
+use std::{fs, str::FromStr};
 
-use bitcoin::{secp256k1::{Secp256k1, All}, bip32::{ExtendedPrivKey, ChildNumber}, Network, Address, TxIn, OutPoint, Witness};
-use electrum_client::{ElectrumApi, bitcoin::hashes::hex::FromHex, GetBalanceRes, ListUnspentRes};
+use bitcoin::{secp256k1::{Secp256k1, SecretKey, Message, All}, bip32::{ExtendedPrivKey, ChildNumber}, Network, Address, TxIn, OutPoint, Witness, hashes::Hash};
+use electrum_client::{ElectrumApi, GetBalanceRes, ListUnspentRes};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{keystore::{key_path_with_addresses::KeyPathWithAddresses, key_path::KeyPath}, utils::{error::{CError, WalletErrorType}, client_shim::ClientShim}};
+use crate::{keystore::{key_path_with_addresses::KeyPathWithAddresses, key_path::KeyPath}, utils::{error::{CError, WalletErrorType}, client_shim::ClientShim, helpers::get_sighash}, shared::structs::Protocol};
 
 use super::shared_key::SharedKey;
 
@@ -17,6 +17,8 @@ pub struct Wallet {
     
     pub electrum_client: electrum_client::Client,
     pub client_shim: ClientShim,
+
+    secp: Secp256k1<All>,
 
     pub master_priv_key: ExtendedPrivKey,
     pub keys: KeyPathWithAddresses,           // Keys for general usage
@@ -64,6 +66,7 @@ impl Wallet {
             network: network.to_string(),
             electrum_client,
             client_shim,
+            secp,
             master_priv_key,
             keys,
             se_backup_keys,
@@ -161,6 +164,7 @@ impl Wallet {
             electrum_client,
             client_shim,
             master_priv_key,
+            secp,
             keys,
             se_backup_keys,
             se_proof_keys,
@@ -346,6 +350,13 @@ impl Wallet {
         Ok((addresses, unspent_list))
     }
 
+    pub fn get_tip_header(&self) -> Result<usize, CError> {
+        match self.electrum_client.block_headers_subscribe() {
+            Ok(val) => Ok(val.height),
+            Err(e) => Err(CError::Generic(e.to_string())),
+        }
+    }
+
     /// Select unspent coins greedily. Return TxIns along with corresponding spending addresses and amounts
     pub fn coin_selection_greedy(
         &mut self,
@@ -371,6 +382,153 @@ impl Wallet {
         }
         return Err(CError::WalletError(WalletErrorType::NotEnoughFunds));
     }
+
+    /// Sign inputs with given addresses derived by this wallet. input_indices, addresses and amoumts lists
+    /// must be in order of appearance in TxIn[] list
+    pub fn sign_tx(
+        &mut self,
+        transaction: &bitcoin::Transaction,
+        input_indices: &Vec<usize>,
+        addresses: &Vec<bitcoin::Address>,
+    ) -> bitcoin::Transaction {
+        let mut signed_transaction = transaction.clone();
+        for (iter, input_index) in input_indices.iter().enumerate() {
+            // get key corresponding to address
+            let address = addresses.get(iter).unwrap();
+            let key_derivation = self
+                .keys
+                .get_address_derivation(&address.to_string())
+                .ok_or(CError::WalletError(WalletErrorType::KeyNotFound))
+                .unwrap();
+            let pk = key_derivation.public_key.unwrap();
+            let sk = key_derivation.private_key.inner;
+
+            let sig_hash = get_sighash(
+                &transaction,
+                &input_index,
+                &pk,
+                &self.network,
+            );
+
+            let hash_byte = sig_hash.to_byte_array();
+
+            let msg = Message::from_slice(&hash_byte).unwrap();
+            let signature = self.secp.sign_ecdsa(&msg, &sk).serialize_der();
+
+            let mut with_hashtype = signature.to_vec();
+            with_hashtype.push(1);
+            signed_transaction.input[*input_index].witness.clear();
+            signed_transaction.input[*input_index]
+                .witness
+                .push(with_hashtype);
+            signed_transaction.input[*input_index]
+                .witness
+                .push(pk.inner.serialize().to_vec());
+        }
+        return signed_transaction;
+    }
+
+    // - Shared Keys Section - Start
+    
+    /// create new 2P-ECDSA key with state entity
+    pub fn gen_shared_key_repeat_keygen(&mut self, id: &Uuid, value: &u64, solution: String, kg1_reps: u32) -> Result<&SharedKey, CError> {
+        let key_share_pub = self.se_key_shares.get_new_key()?;
+        let key_share_priv = self
+            .se_key_shares
+            .get_key_derivation(&key_share_pub)
+            .unwrap()
+            .private_key
+            .inner;
+
+        let shared_key = SharedKey::new_repeat_keygen(
+            id,
+            &self.client_shim,
+            &key_share_priv,
+            value,
+            Protocol::Deposit,
+            solution,
+            kg1_reps
+        )?;
+        self.shared_keys.push(shared_key);
+        Ok(self.shared_keys.last().unwrap())
+    }
+
+    /// create new 2P-ECDSA key with state entity
+    pub fn gen_shared_key(&mut self, id: &Uuid, value: &u64, solution: String) -> Result<&SharedKey, CError> {
+        self.gen_shared_key_repeat_keygen(id, value, solution, 0)
+    }
+
+    /// create new 2P-ECDSA key with pre-definfed private key
+    pub fn gen_shared_key_fixed_secret_key_repeat_keygen(
+        &mut self,
+        id: &Uuid,
+        secret_key: &SecretKey,
+        value: &u64,
+        rep_kg1: u32
+    ) -> Result<(), CError> {
+        self.shared_keys.push(SharedKey::new_repeat_keygen(
+            id,
+            &self.client_shim,
+            secret_key,
+            value,
+            Protocol::Transfer,
+            "".to_string(),
+            rep_kg1
+        )?);
+        Ok(())
+    }
+
+    /// Get shared key by id. Return None if no shared key with given id.
+    pub fn get_shared_key(&self, id: &Uuid) -> Result<&SharedKey, CError> {
+        for shared in &self.shared_keys {
+            if shared.id == *id {
+                return Ok(shared);
+            }
+        }
+        Err(CError::WalletError(WalletErrorType::SharedKeyNotFound))
+    }
+
+    /// Get unspent shared key by state chain id. Return Err if no shared key with given state chain id.
+    pub fn get_shared_key_by_statechain_id(&self, statechain_id: &Uuid) -> Result<&SharedKey, CError> {
+        for shared in &self.shared_keys {
+            if shared.statechain_id == Some(statechain_id.to_owned()) {
+                if shared.unspent == true {
+                    return Ok(shared);
+                } 
+            }
+        }
+        // If not found return shared key marked as spent.
+        // This is temporary until we get smarter shared_key.unspent implemented with arrival
+        // of watcher to check transfer status of StateChains.
+        // At the moment wallet marks shared_keys as spent when transfer_sender() completes so we
+        // cannot test for 'StateChain locked/spent' error messages without below code
+        for shared in &self.shared_keys {
+            if shared.statechain_id == Some(statechain_id.to_owned()) {
+                return Ok(shared);
+            }
+        }
+        Err(CError::WalletError(WalletErrorType::StateChainNotFound))
+    }
+
+    /// Get mutable reference to shared key by id. Return None if no shared key with given id.
+    pub fn get_shared_key_mut(&mut self, id: &Uuid) -> Result<&mut SharedKey, CError> {
+        for shared in &mut self.shared_keys {
+            if shared.id == *id {
+                return Ok(shared);
+            }
+        }
+        Err(CError::WalletError(WalletErrorType::SharedKeyNotFound))
+    }
+
+    // - Shared Keys Section - End
+
+    // - Utils Section - Start
+
+    pub fn get_bitcoin_network(&self) -> Network {
+        self.network.parse::<Network>().unwrap()
+    }
+
+    // - Utils Section - End
 }
 
 impl std::fmt::Display for Wallet {
